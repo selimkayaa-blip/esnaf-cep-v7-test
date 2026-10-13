@@ -38,15 +38,15 @@ header,.no-print,.back{display:none!important}body{background:#fff}.card{box-sha
 </style>
 </head>
 <body>
-<header><b>ESNAF CEP</b><div id="headerFirm" style="font-size:16px;font-weight:700;margin-top:3px"></div><div class="sub">Bulut V6.1 • Firma Seçimi</div></header>
+<header><b>ESNAF CEP</b><div id="headerFirm" style="font-size:16px;font-weight:700;margin-top:3px"></div><div class="sub">Bulut V7 • Çok Firmalı Test</div></header>
 
 <style>
 #cloudGate{position:fixed;inset:0;z-index:100;background:#f4f6f8;display:flex;align-items:center;justify-content:center;padding:20px}
 #cloudGate .card{width:100%;max-width:430px}#cloudState{font-size:13px;margin:8px 0;white-space:pre-wrap}
 #cloudBar{background:#fff4cc;color:#302700;padding:9px 16px;font-size:12px;display:none}
 </style>
-<div id="cloudGate"><div class="card"><h2>☁️ Esnaf Cep Bulut V6</h2><p class="note">Bulut hesabınla giriş yap. Müşteri, cari, alış-satış, tahsilat, teklifler, çekler ve senetler bulutta saklanır.</p><input id="cloudEmail" type="email" placeholder="E-posta" autocomplete="username"><input id="cloudPassword" type="password" placeholder="Şifre" autocomplete="current-password"><button id="cloudLogin" class="yellow">Giriş Yap</button><div id="cloudState" role="status"></div></div></div>
-<div id="cloudBar">☁️ <span id="activeFirmLabel">Bulut</span> <button id="switchFirm" style="width:auto;padding:5px 10px;margin-left:6px">Firma Değiştir</button> <button id="cloudLogout" style="width:auto;padding:5px 10px;float:right">Çıkış</button></div>
+<div id="cloudGate"><div class="card"><h2>☁️ Esnaf Cep Bulut V7</h2><p class="note">Bulut hesabınla giriş yap. Müşteri, cari, alış-satış, tahsilat, teklifler, çekler ve senetler bulutta saklanır.</p><input id="cloudEmail" type="email" placeholder="E-posta" autocomplete="username"><input id="cloudPassword" type="password" placeholder="Şifre" autocomplete="current-password"><button id="cloudLogin" class="yellow">Giriş Yap</button><div id="cloudState" role="status"></div></div></div>
+<div id="cloudBar">☁️ <span id="activeFirmLabel">Bulut</span> <button id="addFirm" style="width:auto;padding:5px 10px;margin-left:6px">+ Yeni Firma</button> <button id="switchFirm" style="width:auto;padding:5px 10px;margin-left:6px">Firma Değiştir</button> <button id="cloudLogout" style="width:auto;padding:5px 10px;float:right">Çıkış</button></div>
 <main>
 <section id="home" class="screen active">
   <div class="card"><h2>Hoş geldin 👋</h2><div class="note">Bulut V6: Aylık raporlar, tarih aralığı ve müşteri bakiyeleri bulut kayıtlarından hesaplanır.</div></div>
@@ -419,6 +419,27 @@ async function chooseFirm(firmId){
   showScreen('home');
  }catch(e){cloudFirm=oldFirm;cloudReady=oldReady;throw e;}
 }
+document.getElementById('addFirm').onclick=async()=>{
+ if(!cloudReady)return;
+ const name=prompt('Yeni firmanın adını yaz:');
+ if(name===null)return;
+ const clean=name.trim();
+ if(clean.length<2||clean.length>120)return alert('Firma adı 2-120 karakter olmalı.');
+ if(!confirm('"'+clean+'" için ayrı bir firma açılacak. Mevcut kayıtlar değişmeyecek. Devam edilsin mi?'))return;
+ const btn=document.getElementById('addFirm');btn.disabled=true;
+ try{
+  const {data,error}=await cloudClient.rpc('esnaf_create_firm',{p_name:clean});
+  if(error)throw error;
+  if(!data)throw Error('Yeni firma numarası alınamadı.');
+  const {data:members,error:memberError}=await cloudClient.from('firm_members').select('firm_id').eq('user_id',(await cloudClient.auth.getUser()).data.user.id);
+  if(memberError)throw memberError;
+  cloudMemberships=[...new Set((members||[]).map(x=>x.firm_id).filter(Boolean))];
+  if(!cloudMemberships.includes(data))throw Error('Firma oluşturuldu ancak üyelik listesinde görünmüyor. SQL yetkilerini kontrol et.');
+  await chooseFirm(data);
+  alert('Yeni firma oluşturuldu ve seçildi: '+clean);
+ }catch(e){alert('Firma oluşturulamadı: '+cloudError(e)+'\nÖnce V7 SQL kurulumunu çalıştırdığından emin ol.');}
+ finally{btn.disabled=false;}
+};
 document.getElementById('switchFirm').onclick=async()=>{
  if(!cloudReady)return;
  try{
@@ -643,8 +664,15 @@ deleteEntry=async function(type,i){
  const table=type==='transaction'?'transactions':'collections',arr=type==='transaction'?db.transactions:db.collections,x=arr[i];
  if(!x?.id||!confirm('Bu işlem buluttan silinsin mi?'))return;
  try{
-  cloudGuard();const {data,error}=await cloudClient.from(table).delete().eq('id',x.id).eq('firm_id',cloudFirm).select('id');
-  if(error)throw error;if(!data?.length)throw Error('Silme yetkisi yok veya kayıt bulunamadı.');
+  cloudGuard();
+  // First verify the row visible to this signed-in user and its actual firm.
+  const {data:found,error:readError}=await cloudClient.from(table).select('id,firm_id').eq('id',x.id).maybeSingle();
+  if(readError)throw Error('Kayıt kontrolü: '+cloudError(readError));
+  if(!found)throw Error('Kayıt bu oturumda okunamıyor veya artık mevcut değil. Kimlik: '+x.id);
+  if(found.firm_id!==cloudFirm)throw Error('Aktif firma ile kayıt firması eşleşmiyor. Aktif: '+cloudFirm+' / Kayıt: '+found.firm_id);
+  const {data,error}=await cloudClient.from(table).delete().eq('id',x.id).eq('firm_id',cloudFirm).select('id');
+  if(error)throw Error('Supabase silme hatası: '+cloudError(error));
+  if(!data?.length)throw Error('Kayıt bulundu, firma eşleşti fakat Supabase silmeye izin vermedi. '+table+' tablosunun DELETE ve SELECT RLS kurallarını kontrol et.');
   await cloudReload();alert('Buluttan silindi.');
  }catch(e){alert('Silinemedi: '+cloudError(e));}
 };
