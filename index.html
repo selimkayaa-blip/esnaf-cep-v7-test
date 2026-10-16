@@ -38,15 +38,15 @@ header,.no-print,.back{display:none!important}body{background:#fff}.card{box-sha
 </style>
 </head>
 <body>
-<header><b>ESNAF CEP</b><div id="headerFirm" style="font-size:16px;font-weight:700;margin-top:3px"></div><div class="sub">Bulut V7 • Çok Firmalı Test</div></header>
+<header><b>ESNAF CEP</b><div id="headerFirm" style="font-size:16px;font-weight:700;margin-top:3px"></div><div class="sub">Bulut V8 • Yönetici Paneli Test</div></header>
 
 <style>
 #cloudGate{position:fixed;inset:0;z-index:100;background:#f4f6f8;display:flex;align-items:center;justify-content:center;padding:20px}
 #cloudGate .card{width:100%;max-width:430px}#cloudState{font-size:13px;margin:8px 0;white-space:pre-wrap}
 #cloudBar{background:#fff4cc;color:#302700;padding:9px 16px;font-size:12px;display:none}
 </style>
-<div id="cloudGate"><div class="card"><h2>☁️ Esnaf Cep Bulut V7</h2><p class="note">Bulut hesabınla giriş yap. Müşteri, cari, alış-satış, tahsilat, teklifler, çekler ve senetler bulutta saklanır.</p><input id="cloudEmail" type="email" placeholder="E-posta" autocomplete="username"><input id="cloudPassword" type="password" placeholder="Şifre" autocomplete="current-password"><button id="cloudLogin" class="yellow">Giriş Yap</button><div id="cloudState" role="status"></div></div></div>
-<div id="cloudBar">☁️ <span id="activeFirmLabel">Bulut</span> <button id="addFirm" style="width:auto;padding:5px 10px;margin-left:6px">+ Yeni Firma</button> <button id="switchFirm" style="width:auto;padding:5px 10px;margin-left:6px">Firma Değiştir</button> <button id="cloudLogout" style="width:auto;padding:5px 10px;float:right">Çıkış</button></div>
+<div id="cloudGate"><div class="card"><h2>☁️ Esnaf Cep Bulut V8</h2><p class="note">Bulut hesabınla giriş yap. Müşteri, cari, alış-satış, tahsilat, teklifler, çekler ve senetler bulutta saklanır.</p><input id="cloudEmail" type="email" placeholder="E-posta" autocomplete="username"><input id="cloudPassword" type="password" placeholder="Şifre" autocomplete="current-password"><label style="display:flex;align-items:center;gap:8px;margin:12px 0"><input id="rememberMe" type="checkbox" style="width:auto;margin:0"> Beni Hatırla (bu cihazda oturumu açık tut)</label><button id="cloudLogin" class="yellow">Giriş Yap</button><div id="cloudState" role="status"></div></div></div>
+<div id="cloudBar">☁️ <span id="activeFirmLabel">Bulut</span> <button id="adminPanelButton" style="width:auto;padding:5px 10px;margin-left:6px">Yönetici Paneli</button> <button id="addFirm" style="width:auto;padding:5px 10px;margin-left:6px">+ Yeni Firma</button> <button id="switchFirm" style="width:auto;padding:5px 10px;margin-left:6px">Firma Değiştir</button> <button id="cloudLogout" style="width:auto;padding:5px 10px;float:right">Çıkış</button></div>
 <main>
 <section id="home" class="screen active">
   <div class="card"><h2>Hoş geldin 👋</h2><div class="note">Bulut V6: Aylık raporlar, tarih aralığı ve müşteri bakiyeleri bulut kayıtlarından hesaplanır.</div></div>
@@ -60,10 +60,12 @@ header,.no-print,.back{display:none!important}body{background:#fff}.card{box-sha
     <div class="tile" onclick="go('checks')"><span>🏦</span>Çeklerim</div>
     <div class="tile" onclick="go('notes')"><span>📝</span>Senetlerim</div>
     <div class="tile" onclick="go('reports')"><span>📊</span>Raporlar</div>
+    <div class="tile" onclick="openAdminPanel()"><span>🏢</span>Yönetici Paneli</div>
     <div class="tile" onclick="go('settings')"><span>⚙️</span>Firma Ayarları</div>
   </div>
 </section>
 
+<section id="admin" class="screen"><button class="back" onclick="go('home')">← Ana Sayfa</button><div class="card"><h2>🏢 Yönetici Paneli</h2><p class="note">Bu ekranda yalnızca hesabının erişim yetkisi olan firmalar görünür. Başka kullanıcılar için hesap açma ve yetki verme bu sürüme dahil değildir.</p><div id="adminFirmList">Firmalar yükleniyor...</div><button class="yellow" onclick="document.getElementById('addFirm').click()">+ Yeni Firma Aç</button></div></section>
 <section id="customers" class="screen">
 <button class="back" onclick="go('home')">← Ana Sayfa</button>
 <div class="card"><h2>Müşteri Ekle</h2>
@@ -391,10 +393,36 @@ let cloudClient=null,cloudFirm=null,cloudReady=false,cloudBusy=false,cloudMember
 const cloudMessage=m=>document.getElementById('cloudState').textContent=m;
 const cloudError=e=>e?.message||String(e);
 function cloudGuard(){if(!cloudReady||!cloudFirm)throw Error('Önce bulut hesabına giriş yap.');}
+const rememberStorage={
+ getItem(key){return sessionStorage.getItem(key)??localStorage.getItem(key);},
+ setItem(key,value){if(localStorage.getItem('esnaf_remember_v8')==='yes'){localStorage.setItem(key,value);sessionStorage.removeItem(key);}else{sessionStorage.setItem(key,value);localStorage.removeItem(key);}},
+ removeItem(key){sessionStorage.removeItem(key);localStorage.removeItem(key);}
+};
+async function openAdminPanel(){
+ if(!cloudReady)return alert('Önce giriş yap.');
+ showScreen('admin');
+ const el=document.getElementById('adminFirmList');el.textContent='Firmalar yükleniyor...';
+ try{
+  const results=[];
+  for(const id of cloudMemberships){
+   const {data,error}=await cloudClient.from('firm_settings').select('firm').eq('firm_id',id).maybeSingle();
+   results.push({id,name:(!error&&data?.firm)||'Firma '+id.slice(0,8)});
+  }
+  el.replaceChildren();
+  for(const f of results){
+   const line=document.createElement('div');line.style.cssText='padding:12px 0;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center;gap:8px';
+   const name=document.createElement('span');name.textContent=f.name+(f.id===cloudFirm?' ✓ Aktif':'');
+   const btn=document.createElement('button');btn.textContent=f.id===cloudFirm?'Aktif':'Firmaya Geç';btn.disabled=f.id===cloudFirm;btn.style.width='auto';
+   btn.onclick=async()=>{btn.disabled=true;try{await chooseFirm(f.id);}catch(e){alert(cloudError(e));btn.disabled=false;}};
+   line.append(name,btn);el.append(line);
+  }
+ }catch(e){el.textContent='Firmalar yüklenemedi: '+cloudError(e);}
+}
 async function cloudStart(){
  try{
   if(!window.supabase?.createClient)throw Error('Supabase kütüphanesi yüklenemedi. İnterneti kontrol et.');
-  cloudClient=window.supabase.createClient(CLOUD_URL,CLOUD_KEY);
+  cloudClient=window.supabase.createClient(CLOUD_URL,CLOUD_KEY,{auth:{storage:rememberStorage,persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  document.getElementById('rememberMe').checked=localStorage.getItem('esnaf_remember_v8')==='yes';
   const {data,error}=await cloudClient.auth.getUser();
   if(!error&&data.user)await cloudEnter(data.user);
  }catch(e){cloudMessage(cloudError(e));}
@@ -566,10 +594,16 @@ async function deleteEntry(type,i){
 }
 const originalRefresh=refresh;
 refresh=function(){originalRefresh();if(cloudReady)cloudRenderCustomers();};
+document.getElementById('adminPanelButton').onclick=openAdminPanel;
 document.getElementById('cloudLogin').onclick=async()=>{
  const btn=document.getElementById('cloudLogin');btn.disabled=true;cloudMessage('Bağlanıyor...');
  try{
   if(!cloudClient)throw Error('Bağlantı hazır değil. Sayfayı yenile.');
+  const remember=document.getElementById('rememberMe').checked;
+  localStorage.setItem('esnaf_remember_v8',remember?'yes':'no');
+  // Clear any previously persisted token before starting a fresh sign-in.
+  const {data:oldSession}=await cloudClient.auth.getSession();
+  if(oldSession?.session)await cloudClient.auth.signOut();
   const {data,error}=await cloudClient.auth.signInWithPassword({email:cloudEmail.value.trim(),password:cloudPassword.value});
   if(error)throw error;await cloudEnter(data.user);cloudPassword.value='';cloudMessage('');
  }catch(e){cloudMessage(cloudError(e));}finally{btn.disabled=false;}
